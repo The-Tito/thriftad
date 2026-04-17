@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "84755104908",
+    "project_id": "thriftadapp",
+    "storage_bucket": "thriftadapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:84755104908:android:ccae8cf356876632b5e7a9",
+        "android_client_info": {
+          "package_name": "com.polet.thriftadapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCyjNGnOKmp1qfVJbmYm2JiVfi4Bf4jY8Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
