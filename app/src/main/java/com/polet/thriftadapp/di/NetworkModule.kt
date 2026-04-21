@@ -34,9 +34,7 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
-        // Emulador Android Studio  → usar 10.0.2.2  (apunta al localhost de la PC)
-        // Dispositivo físico       → usar la IP local de la PC (ej. 192.168.1.X)
-        val baseUrl = "http://10.0.2.2:8080/"
+        val baseUrl = "http://52.71.32.48:8080/"
 
         return Retrofit.Builder()
             .baseUrl(baseUrl)
