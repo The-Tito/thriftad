@@ -31,9 +31,9 @@ sealed class Screen(val route: String) {
     object Login : Screen("login")
     object Register : Screen("register")
     object AddTransaction : Screen("add")
-    object Camera : Screen("camera/{nombre}/{monto}/{categoria}/{fecha}") {
-        fun createRoute(nombre: String, monto: String, categoria: String, fecha: String) =
-            "camera/${Uri.encode(nombre)}/${Uri.encode(monto)}/${Uri.encode(categoria)}/${Uri.encode(fecha)}"
+    object Camera : Screen("camera/{nombre}/{monto}/{categoria}/{fecha}/{esIngreso}") {
+        fun createRoute(nombre: String, monto: String, categoria: String, fecha: String, esIngreso: Boolean = false) =
+            "camera/${Uri.encode(nombre)}/${Uri.encode(monto)}/${Uri.encode(categoria)}/${Uri.encode(fecha)}/$esIngreso"
     }
     object Map : Screen("map")
     object Profile : Screen("profile")
@@ -163,10 +163,11 @@ fun NavGraph(
                     val m   = addViewModel.state.monto.ifBlank { "0" }
                     val cat = addViewModel.state.categoria.ifBlank { "Otro" }
                     val f   = addViewModel.state.fecha.ifBlank { "" }
+                    val inc = addViewModel.state.esIngreso
                     // Resetear ANTES de navegar para que al regresar con Editar
                     // este LaunchedEffect no vuelva a dispararse
                     addViewModel.onEvent(AddTransactionEvent.ResetSaved)
-                    navController.navigate(Screen.Camera.createRoute(n, m, cat, f))
+                    navController.navigate(Screen.Camera.createRoute(n, m, cat, f, inc))
                 }
             }
 
@@ -185,19 +186,22 @@ fun NavGraph(
                 navArgument("nombre")    { type = NavType.StringType },
                 navArgument("monto")     { type = NavType.StringType },
                 navArgument("categoria") { type = NavType.StringType },
-                navArgument("fecha")     { type = NavType.StringType }
+                navArgument("fecha")     { type = NavType.StringType },
+                navArgument("esIngreso") { type = NavType.BoolType; defaultValue = false }
             )
         ) { backStackEntry ->
-            val nArg   = backStackEntry.arguments?.getString("nombre")    ?: ""
-            val mArg   = backStackEntry.arguments?.getString("monto")     ?: ""
-            val catArg = backStackEntry.arguments?.getString("categoria") ?: ""
-            val fArg   = backStackEntry.arguments?.getString("fecha")     ?: ""
+            val nArg      = backStackEntry.arguments?.getString("nombre")     ?: ""
+            val mArg      = backStackEntry.arguments?.getString("monto")      ?: ""
+            val catArg    = backStackEntry.arguments?.getString("categoria")  ?: ""
+            val fArg      = backStackEntry.arguments?.getString("fecha")      ?: ""
+            val incArg    = backStackEntry.arguments?.getBoolean("esIngreso") ?: false
             val cameraViewModel: CameraViewModel = hiltViewModel()
-            LaunchedEffect(nArg, mArg, catArg, fArg) {
+            LaunchedEffect(nArg, mArg, catArg, fArg, incArg) {
                 cameraViewModel.onEvent(CameraEvent.OnConceptChange(nArg))
                 cameraViewModel.onEvent(CameraEvent.OnAmountChange(mArg))
                 cameraViewModel.onEvent(CameraEvent.OnCategoriaChange(catArg))
                 cameraViewModel.onEvent(CameraEvent.OnFechaChange(fArg))
+                cameraViewModel.onEvent(CameraEvent.OnEsIngresoChange(incArg))
             }
             LaunchedEffect(homeViewModel.currentUserId) {
                 if (homeViewModel.currentUserId != -1)
@@ -208,14 +212,23 @@ fun NavGraph(
                 onEvent = { event ->
                     when (event) {
                         is CameraEvent.ConfirmAndSave -> {
-                            val foto = cameraViewModel.state.capturedImageUri?.toString() ?: ""
-                            // PlacesViewModel: guarda en Room con userId + captura GPS
+                            val foto      = cameraViewModel.state.capturedImageUri?.toString() ?: ""
+                            // Capturar esIngreso antes de navegar (la VM de Camera se destruye al salir)
+                            val esIngreso = cameraViewModel.state.esIngreso
+                            // PlacesViewModel: guarda en Room con userId + GPS
                             placesViewModel.registrarNuevoGasto(
-                                homeViewModel.currentUserId,
-                                event.concept, event.amount, foto
+                                userId    = homeViewModel.currentUserId,
+                                nombre    = event.concept,
+                                monto     = event.amount,
+                                rutaFoto  = foto,
+                                esIngreso = esIngreso
                             ) { total, ticketId ->
-                                homeViewModel.registrarGastoDesdeTicket(total)
+                                homeViewModel.registrarGastoDesdeTicket(total, esIngreso)
                                 cameraViewModel.setTicketId(ticketId)
+                            }
+                            // Recargar Home una vez que el backend confirme (no cuando Room inserta)
+                            cameraViewModel.setSyncCallback {
+                                homeViewModel.loadUserData(homeViewModel.currentUserId)
                             }
                             // CameraViewModel: sincroniza con backend
                             cameraViewModel.onEvent(event)
@@ -237,6 +250,9 @@ fun NavGraph(
             ProfileScreen(
                 userName            = homeState.userName.ifBlank { "Usuario" },
                 onLogout            = {
+                    // Limpiar estado de ViewModels ANTES de navegar para evitar datos stale
+                    homeViewModel.resetState()
+                    placesViewModel.resetState()
                     context.getSharedPreferences("thriftad_prefs", Context.MODE_PRIVATE)
                         .edit().clear().apply()
                     navController.navigate(Screen.Login.route) { popUpTo(0) }

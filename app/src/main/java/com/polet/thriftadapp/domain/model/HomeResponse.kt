@@ -17,7 +17,8 @@ data class TransactionResponse(
     val amount: Double,
     val category: String,
     val date: String,
-    // alternate cubre los casos donde el backend devuelve "esIngreso" en vez de "isInc"
     @SerializedName(value = "isInc", alternate = ["esIngreso", "is_inc", "isIncome"])
-    val isInc: Boolean
+    val isInc: Boolean,
+    val ubicacion: String? = null,
+    val urlImagen: String? = null
 )

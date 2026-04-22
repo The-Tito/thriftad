@@ -12,6 +12,7 @@ import com.polet.thriftadapp.data.local.entities.TicketEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,10 +32,14 @@ class PlacesViewModel @Inject constructor(
 
     private var currentUserId: Int = -1
 
+    // Job del observer de Room — se cancela antes de iniciar uno nuevo
+    private var placesObserverJob: Job? = null
+
     fun setUserId(userId: Int) {
         if (userId == currentUserId) return
         currentUserId = userId
-        viewModelScope.launch {
+        placesObserverJob?.cancel()
+        placesObserverJob = viewModelScope.launch {
             ticketDao.getVisibleTickets(userId).collectLatest { tickets ->
                 listaLugares.clear()
                 listaLugares.addAll(tickets.map { entity ->
@@ -49,7 +54,27 @@ class PlacesViewModel @Inject constructor(
         }
     }
 
-    fun registrarNuevoGasto(userId: Int, nombre: String, monto: String, rutaFoto: String, onGastoConfirmado: (Double, Int) -> Unit) {
+    // Limpia todo el estado al hacer logout. Debe llamarse ANTES de navegar a Login.
+    fun resetState() {
+        placesObserverJob?.cancel()
+        placesObserverJob = null
+        currentUserId = -1
+        listaLugares.clear()
+    }
+
+    fun registrarNuevoGasto(
+        userId: Int,
+        nombre: String,
+        monto: String,
+        rutaFoto: String,
+        esIngreso: Boolean = false,
+        onGastoConfirmado: (Double, Int) -> Unit
+    ) {
+        if (userId == -1) {
+            android.util.Log.e("PlacesViewModel", "registrarNuevoGasto: userId inválido (-1), operación cancelada")
+            return
+        }
+
         viewModelScope.launch {
             val location  = locationClient.getCurrentLocation()
             val direccion = if (location != null) {
@@ -59,14 +84,16 @@ class PlacesViewModel @Inject constructor(
             }
 
             val montoDouble = monto.toDoubleOrNull() ?: 0.0
+            val conceptoFinal = nombre.ifBlank { if (esIngreso) "Ingreso" else "Gasto" }
 
             val ticketId = ticketDao.insertTicket(TicketEntity(
                 userId    = userId,
-                concept   = nombre.ifBlank { "Gasto" },
+                concept   = conceptoFinal,
                 amount    = montoDouble,
                 date      = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date()),
                 imagePath = rutaFoto,
-                location  = direccion
+                location  = direccion,
+                isIncome  = esIngreso
             )).toInt()
 
             onGastoConfirmado(montoDouble, ticketId)
@@ -81,9 +108,9 @@ class PlacesViewModel @Inject constructor(
                 @Suppress("DEPRECATION")
                 val addresses  = geocoder.getFromLocation(lat, lon, 1)
                 val address    = addresses?.firstOrNull()
-                address?.locality               // nombre de ciudad (ej. "San Cristóbal de las Casas")
-                    ?: address?.subAdminArea    // municipio si no hay ciudad
-                    ?: address?.adminArea       // estado si no hay municipio
+                address?.locality
+                    ?: address?.subAdminArea
+                    ?: address?.adminArea
                     ?: "Lat: ${"%.4f".format(lat)}, Lon: ${"%.4f".format(lon)}"
             } catch (e: Exception) {
                 "Lat: ${"%.4f".format(lat)}, Lon: ${"%.4f".format(lon)}"

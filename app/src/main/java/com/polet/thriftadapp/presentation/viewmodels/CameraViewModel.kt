@@ -32,8 +32,11 @@ class CameraViewModel @Inject constructor(
         private set
 
     private var pendingTicketId: Int = -1
+    private var onSyncComplete: (() -> Unit)? = null
 
     fun setTicketId(id: Int) { pendingTicketId = id }
+
+    fun setSyncCallback(callback: () -> Unit) { onSyncComplete = callback }
 
     fun onEvent(event: CameraEvent) {
         when (event) {
@@ -45,6 +48,7 @@ class CameraViewModel @Inject constructor(
             is CameraEvent.OnAmountChange    -> state = state.copy(amount = event.amount)
             is CameraEvent.OnCategoriaChange -> state = state.copy(categoria = event.categoria)
             is CameraEvent.OnFechaChange     -> state = state.copy(fecha = event.fecha)
+            is CameraEvent.OnEsIngresoChange -> state = state.copy(esIngreso = event.esIngreso)
             is CameraEvent.ConfirmAndSave    -> {
                 val concepto = if (event.concept.isNotBlank()) event.concept else state.concept
                 val monto    = if (event.amount.isNotBlank()) event.amount    else state.amount
@@ -56,16 +60,16 @@ class CameraViewModel @Inject constructor(
 
     // POST directo al backend. Room insert es responsabilidad de PlacesViewModel (tiene GPS).
     private fun sincronizarConBackend(concept: String, amount: String) {
-        val fechaApi      = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val fechaApi      = convertirFecha(state.fecha)
         val montoNumerico = amount.toDoubleOrNull() ?: 0.0
-        val nombreFinal   = concept.ifBlank { "Gasto Sin Nombre" }
+        val nombreFinal   = concept.ifBlank { if (state.esIngreso) "Ingreso" else "Gasto Sin Nombre" }
         val imageBase64   = encodeImage(state.capturedImageUri)
         val userId        = state.userId.takeIf { it != -1 } ?: run {
             Log.w(TAG, "userId no disponible — movimiento no sincronizado")
             return
         }
 
-        Log.d(TAG, "sincronizarConBackend: userId=$userId nombre='$nombreFinal' monto=$montoNumerico")
+        Log.d(TAG, "sincronizarConBackend: userId=$userId nombre='$nombreFinal' monto=$montoNumerico esIngreso=${state.esIngreso}")
 
         val request = MovimientoRequest(
             idUsuario      = userId,
@@ -74,7 +78,7 @@ class CameraViewModel @Inject constructor(
             monto          = montoNumerico,
             fecha          = fechaApi,
             descripcion    = "Ticket capturado desde App",
-            esIngreso      = false,
+            esIngreso      = state.esIngreso,
             ubicacion      = "San Cristóbal de las Casas",
             imagenBase64   = imageBase64
         )
@@ -89,6 +93,8 @@ class CameraViewModel @Inject constructor(
                         ticketDao.updateCloudinaryUrl(pendingTicketId, cloudUrl)
                         Log.d(TAG, "cloudinaryUrl guardado en Room (ticketId=$pendingTicketId)")
                     }
+                    onSyncComplete?.invoke()
+                    onSyncComplete = null
                 } else {
                     Log.w(TAG, "Backend rechazó HTTP ${response.code()}")
                     state = state.copy(errorMessage = "No se pudo guardar en el servidor (${response.code()})")
@@ -97,6 +103,20 @@ class CameraViewModel @Inject constructor(
                 Log.e(TAG, "Sin conexión: ${e.message}")
                 state = state.copy(errorMessage = "Sin conexión. El ticket se guardó localmente.")
             }
+        }
+    }
+
+    // Convierte la fecha del formulario (dd/MM/yyyy) al formato de la API (yyyy-MM-dd).
+    // Si ya viene en formato yyyy-MM-dd la devuelve sin cambios.
+    // Fallback: fecha de hoy si el parseo falla.
+    private fun convertirFecha(fecha: String): String {
+        if (fecha.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) return fecha
+        return try {
+            val inputFmt  = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+            val outputFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            outputFmt.format(inputFmt.parse(fecha)!!)
+        } catch (e: Exception) {
+            SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         }
     }
 
@@ -126,10 +146,43 @@ class CameraViewModel @Inject constructor(
     private fun encodeImage(uriString: String?): String {
         if (uriString == null) return ""
         return try {
-            val uri   = Uri.parse(uriString)
-            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
-            Base64.encodeToString(bytes, Base64.NO_WRAP)
-        } catch (e: Exception) { "" }
+            val uri = Uri.parse(uriString)
+
+            // 1. Abrir el stream de la imagen
+            val inputStream = context.contentResolver.openInputStream(uri)
+            val originalBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+            inputStream?.close()
+
+            if (originalBitmap == null) return ""
+
+            // 2. Redimensionar: Si la foto es gigante (ej. 4000px), la bajamos a 1024px
+            // Esto mantiene la calidad suficiente para ver el texto del ticket
+            val maxDimension = 1024
+            val width = originalBitmap.width
+            val height = originalBitmap.height
+
+            val scaledBitmap = if (width > maxDimension || height > maxDimension) {
+                val aspectRatio = width.toFloat() / height.toFloat()
+                val newWidth = if (aspectRatio > 1) maxDimension else (maxDimension * aspectRatio).toInt()
+                val newHeight = if (aspectRatio > 1) (maxDimension / aspectRatio).toInt() else maxDimension
+                android.graphics.Bitmap.createScaledBitmap(originalBitmap, newWidth, newHeight, true)
+            } else {
+                originalBitmap
+            }
+
+            // 3. Comprimir: Aquí es donde ocurre la magia del ahorro de peso
+            val outputStream = java.io.ByteArrayOutputStream()
+            // Usamos JPEG al 70% de calidad. Es el "punto dulce" entre peso y visión.
+            scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, outputStream)
+            val byteArray = outputStream.toByteArray()
+
+            // 4. Convertir a Base64 sin saltos de línea (NO_WRAP)
+            Base64.encodeToString(byteArray, Base64.NO_WRAP)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error al procesar imagen: ${e.message}")
+            ""
+        }
     }
 
     companion object {

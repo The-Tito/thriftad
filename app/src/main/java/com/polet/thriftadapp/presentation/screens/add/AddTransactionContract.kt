@@ -1,15 +1,19 @@
 package com.polet.thriftadapp.presentation.screens.add
 
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
 // El "DNI" de lo que la pantalla muestra
 data class AddTransactionState(
     val userId: Int = -1,
     val role: String = "estudiante",
     val nombre: String = "",
     val monto: String = "",
+    val esIngreso: Boolean = false,
     val categoria: String = "Materiales de estudio",
     val unidad: String = "Piezas",
     val cantidad: String = "1",
-    val fecha: String = "22/03/2026",
+    val fecha: String = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
     val descripcion: String = "",
     val isCategoriaExpanded: Boolean = false,
     val isUnidadExpanded: Boolean = false,
@@ -26,6 +30,7 @@ sealed class AddTransactionEvent {
     data class RoleSet(val role: String) : AddTransactionEvent()
     data class NombreChanged(val value: String) : AddTransactionEvent()
     data class MontoChanged(val value: String) : AddTransactionEvent()
+    data class ToggleEsIngreso(val value: Boolean) : AddTransactionEvent()
     data class CategoriaSelected(val value: String) : AddTransactionEvent()
     data class UnidadSelected(val value: String) : AddTransactionEvent()
     data class CantidadChanged(val value: String) : AddTransactionEvent()

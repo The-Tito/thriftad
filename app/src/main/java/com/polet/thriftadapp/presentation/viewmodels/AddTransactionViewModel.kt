@@ -38,6 +38,9 @@ class AddTransactionViewModel @Inject constructor() : ViewModel() {
             is AddTransactionEvent.MontoChanged -> {
                 state = state.copy(monto = event.value, error = null)
             }
+            is AddTransactionEvent.ToggleEsIngreso -> {
+                state = state.copy(esIngreso = event.value, error = null)
+            }
             is AddTransactionEvent.FechaChanged -> {
                 state = state.copy(fecha = event.value)
             }

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -53,8 +54,38 @@ fun AddTransactionScreen(
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black,
-                modifier = Modifier.padding(bottom = 25.dp)
+                modifier = Modifier.padding(bottom = 20.dp)
             )
+
+            // --- TIPO: INGRESO / GASTO ---
+            FormInputLabel(text = "TIPO DE MOVIMIENTO")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(4.dp, RoundedCornerShape(12.dp))
+                    .background(White, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text  = if (state.esIngreso) "Ingreso (+)" else "Gasto (−)",
+                    fontSize     = 15.sp,
+                    fontWeight   = FontWeight.SemiBold,
+                    color        = if (state.esIngreso) Color(0xFF43A047) else Color(0xFFEF5350)
+                )
+                Switch(
+                    checked        = state.esIngreso,
+                    onCheckedChange = { onEvent(AddTransactionEvent.ToggleEsIngreso(it)) },
+                    colors         = SwitchDefaults.colors(
+                        checkedThumbColor   = White,
+                        checkedTrackColor   = Color(0xFF43A047),
+                        uncheckedThumbColor = White,
+                        uncheckedTrackColor = Color(0xFFEF5350)
+                    )
+                )
+            }
+            FormSpacer()
 
             // --- NOMBRE DEL PRODUCTO (Solo letras) ---
             FormInputLabel(text = "NOMBRE DEL PRODUCTO")

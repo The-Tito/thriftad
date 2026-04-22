@@ -25,6 +25,7 @@ import com.polet.thriftadapp.presentation.screens.home.Transaction
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.LocalDate
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -57,18 +58,38 @@ class HomeViewModel @Inject constructor(
     // Saldo en memoria para validaciones instantáneas (+/- modal)
     private var saldoActualPersistente = 0.0
 
+    // Job del observer de Room — se cancela antes de iniciar uno nuevo
+    private var ticketObserverJob: Job? = null
+    private var observedUserId: Int = -1
+
     companion object {
         private const val TAG = "HomeViewModel"
     }
 
-    // Escucha cambios en TicketEntity de Room y recarga el backend cuando hay uno nuevo
+    // Escucha cambios en TicketEntity de Room y recarga el backend cuando hay un ticket nuevo.
+    // Cancela cualquier observer anterior para evitar acumulación de corrutinas entre logins.
+    // El delay da tiempo al backend de procesar el movimiento antes de refrescar.
     fun startTicketObserver(userId: Int) {
-        viewModelScope.launch {
+        if (userId == observedUserId && ticketObserverJob?.isActive == true) return
+        ticketObserverJob?.cancel()
+        observedUserId = userId
+        ticketObserverJob = viewModelScope.launch {
             ticketDao.getVisibleTickets(userId).drop(1).collect {
-                Log.d(TAG, "Ticket nuevo en Room — recargando backend (userId=$userId)")
+                Log.d(TAG, "Ticket nuevo en Room — recargando backend en 10s (userId=$userId)")
+                delay(10_000L)
                 loadUserData(userId)
             }
         }
+    }
+
+    // Limpia todo el estado al hacer logout. Debe llamarse ANTES de navegar a Login.
+    fun resetState() {
+        ticketObserverJob?.cancel()
+        ticketObserverJob = null
+        observedUserId = -1
+        currentUserId = -1
+        saldoActualPersistente = 0.0
+        _state.value = HomeState()
     }
 
     // Refresca el nombre de pantalla desde prefs tras volver de AccountSettings
@@ -89,16 +110,15 @@ class HomeViewModel @Inject constructor(
             val nombreDePrefs = prefs.getString("user_nombre", "")?.takeIf { it.isNotBlank() }
                 ?: prefs.getString("user_name", "") ?: ""
 
+            // No reseteamos balance ni transactions: se mantienen visibles mientras se recarga.
+            // resetState() ya los limpia cuando hace falta (logout o cambio de usuario).
             _state.update {
                 it.copy(
-                    transactions   = emptyList(),
-                    balance        = 0.0,
                     isLoading      = true,
                     error          = null,
-                    nombreCompleto = nombreDePrefs
+                    nombreCompleto = nombreDePrefs.ifBlank { it.nombreCompleto }
                 )
             }
-            saldoActualPersistente = 0.0
 
             try {
                 val response = getHomeDataUseCase(userId)
@@ -194,11 +214,15 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    // Actualiza saldo en memoria cuando se confirma un ticket desde Cámara
-    fun registrarGastoDesdeTicket(monto: Double) {
-        saldoActualPersistente -= monto
+    // Actualiza el saldo en memoria al confirmar un ticket desde Cámara (optimistic update).
+    // esIngreso=true suma al saldo, esIngreso=false lo resta.
+    fun registrarGastoDesdeTicket(monto: Double, esIngreso: Boolean = false) {
+        if (esIngreso) saldoActualPersistente += monto
+        else           saldoActualPersistente -= monto
         _state.update { it.copy(balance = saldoActualPersistente) }
     }
+
+    val imagenFake = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
 
     // Envía el ajuste de saldo al backend con hasta 10 reintentos cada 30 segundos
     private fun enviarAjusteAlBackend(amount: Double, esIngreso: Boolean) {
@@ -264,6 +288,7 @@ class HomeViewModel @Inject constructor(
     // Mapea IDs numéricos a nombres de categoría.
     // IDs 1-8: hogar/estudiante. IDs 9-14: negocio. 0/"": Otros.
     private fun mapearCategoria(raw: String): String = when (raw.trim()) {
+        // IDs numéricos — movimientos registrados desde la app
         "1"  -> "Alimentación"
         "2"  -> "Transporte"
         "3"  -> "Entretenimiento"
@@ -278,8 +303,23 @@ class HomeViewModel @Inject constructor(
         "12" -> "Salarios"
         "13" -> "Impuestos"
         "14" -> "Servicios"
-        "0", "" -> "Otros"
-        else -> raw   // nombre directo si el backend lo envía así
+        // Textos del seed SQL — compatibilidad con datos históricos
+        "Alimentación", "Comida", "Alimentos"            -> "Alimentación"
+        "Transporte"                                     -> "Transporte"
+        "Entretenimiento"                                -> "Entretenimiento"
+        "Salud"                                          -> "Salud"
+        "Ropa"                                           -> "Ropa"
+        "Hogar"                                          -> "Hogar"
+        "Materiales de estudio"                          -> "Materiales de estudio"
+        "Educación", "Educacion", "Beca (Inc)", "Beca"   -> "Educación"
+        "Ventas", "Ingreso"                              -> "Ventas"
+        "Compras", "Insumos"                             -> "Compras"
+        "Gastos operacionales", "Gasto"                  -> "Gastos operacionales"
+        "Salarios"                                       -> "Salarios"
+        "Impuestos"                                      -> "Impuestos"
+        "Servicios"                                      -> "Servicios"
+        "0", ""                                          -> "Otros"
+        else -> raw
     }
 
     // Color fijo por categoría — consistente entre sesiones y roles

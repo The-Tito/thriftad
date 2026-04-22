@@ -124,7 +124,12 @@ fun CameraScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
-                Text("📸 Captura de Ticket", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = PurplePrimary)
+                Text(
+                    text       = if (state.esIngreso) "📸 Captura de Comprobante" else "📸 Captura de Ticket",
+                    fontSize   = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = PurplePrimary
+                )
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // 2. BOX DE LA CÁMARA / VISTA PREVIA
@@ -187,11 +192,16 @@ fun CameraScreen(
                         onClick = { onEvent(CameraEvent.ConfirmAndSave(state.concept, state.amount)) },
                         modifier = Modifier.fillMaxWidth().height(55.dp),
                         shape = RoundedCornerShape(15.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (state.esIngreso) Color(0xFF1976D2) else Color(0xFF4CAF50)
+                        )
                     ) {
                         Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Confirmar Gasto", fontWeight = FontWeight.Bold)
+                        Text(
+                            text       = if (state.esIngreso) "Confirmar Ingreso" else "Confirmar Gasto",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))

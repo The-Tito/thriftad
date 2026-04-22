@@ -9,6 +9,7 @@ data class CameraState(
     val amount: String = "",
     val categoria: String = "",
     val fecha: String = "",
+    val esIngreso: Boolean = false,
     val errorMessage: String? = null
 )
 
@@ -24,6 +25,7 @@ sealed class CameraEvent {
     data class OnAmountChange(val amount: String) : CameraEvent()
     data class OnCategoriaChange(val categoria: String) : CameraEvent()
     data class OnFechaChange(val fecha: String) : CameraEvent()
+    data class OnEsIngresoChange(val esIngreso: Boolean) : CameraEvent()
 
     data class ConfirmAndSave(val concept: String, val amount: String) : CameraEvent()
 }
